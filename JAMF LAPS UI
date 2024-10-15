@@ -3,7 +3,11 @@
 # Author  : Perry Driscoll - https://github.com/PezzaD84
 # Created : 11/8/2023
 # Updated : 7/10/2024
-# Version : v1.3
+# Original Version : v1.3
+# Updated Verison (Current): 1.3-1
+#
+# Change Log
+# v1.3-1 : Simplified the DialogCheck functionality using @acodega's dialogCheck
 #
 #########################################################################################
 # Description:
@@ -44,62 +48,44 @@ DEVICE=`hostname`
 SERVICEDESK=$8
 
 ##############################################################
-# Functions
+# dialogCheck - Thanks @acodega in MacAdmins Slack (SwiftDialog created by Bart Reardon https://github.com/bartreardon/swiftDialog)
 ##############################################################
 
-DialogInstall(){
+function dialogCheck(){
+	# Get the URL of the latest PKG From the Dialog GitHub repo
+	dialogURL=$(curl --silent --fail "https://api.github.com/repos/swiftDialog/swiftDialog/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
+	# Expected Team ID of the downloaded PKG
+	expectedDialogTeamID="PWA5E9TQ59"
 	
-	pkgfile="SwiftDialog.pkg"
-	logfile="/Library/Logs/SwiftDialogInstallScript.log"
-	URL="https://github.com$(curl -sfL "$(curl -sfL "https://github.com/bartreardon/swiftDialog/releases/latest" | tr '"' "\n" | grep -i "expanded_assets" | head -1)" | tr '"' "\n" | grep -i "^/.*\/releases\/download\/.*\.pkg" | head -1)"
-	
-	# Start Log entries
-	echo "--" >> ${logfile}
-	echo "`date`: Downloading latest version." >> ${logfile}
-	
-	# Download installer
-	curl -s -L -J -o /tmp/${pkgfile} ${URL}
-	echo "`date`: Installing..." >> ${logfile}
-	
-	# Change to installer directory
-	cd /tmp
-	
-	# Install application
-	sudo installer -pkg ${pkgfile} -target /
-	sleep 5
-	echo "`date`: Deleting package installer." >> ${logfile}
-	
-	# Remove downloaded installer
-	rm /tmp/"${pkgfile}"
-	
+	# Check for Dialog and install if not found
+	if [ ! -e "/Library/Application Support/Dialog/Dialog.app" ]; then
+		echo "Dialog not found. Installing..."
+		# Create temporary working directory
+		workDirectory=$( /usr/bin/basename "$0" )
+		tempDirectory=$( /usr/bin/mktemp -d "/private/tmp/$workDirectory.XXXXXX" )
+		# Download the installer package
+		/usr/bin/curl --location --silent "$dialogURL" -o "$tempDirectory/Dialog.pkg"
+		# Verify the download
+		teamID=$(/usr/sbin/spctl -a -vv -t install "$tempDirectory/Dialog.pkg" 2>&1 | awk '/origin=/ {print $NF }' | tr -d '()')
+		# Install the package if Team ID validates
+		if [ "$expectedDialogTeamID" = "$teamID" ] || [ "$expectedDialogTeamID" = "" ]; then
+			/usr/sbin/installer -pkg "$tempDirectory/Dialog.pkg" -target /
+			# else # uncomment this else if you want your script to exit now if swiftDialog is not installed
+			# displayAppleScript # uncomment this if you're using my displayAppleScript function
+			# echo "Dialog Team ID verification failed."
+			# exit 1
+		fi
+		# Remove the temporary working directory when done
+		/bin/rm -Rf "$tempDirectory"  
+	else echo "Dialog found. Proceeding..."
+	fi
 }
 
 ##############################################################
-# Check if SwiftDialog is installed (SwiftDialog created by Bart Reardon https://github.com/bartreardon/swiftDialog)
+# Check if SwiftDialog is installed 
 ##############################################################
 
-if ! command -v dialog &> /dev/null
-then
-	echo "SwiftDialog is not installed. App will be installed now....."
-	sleep 2
-	
-	DialogInstall
-	
-else
-	echo "SwiftDialog is installed. Checking installed version....."
-	
-	installedVersion=$(dialog -v | sed 's/./ /6' | awk '{print $1}')
-	
-	latestVersion=$(curl -sfL "https://github.com/bartreardon/swiftDialog/releases/latest" | tr '"' "\n" | grep -i "expanded_assets" | head -1 | tr '/' ' ' | awk '{print $7}' | tr -d 'v' | awk -F '-' '{print $1}')
-	
-	if [[ $installedVersion != $latestVersion ]]; then
-		echo "Dialog needs updating"
-		DialogInstall
-	else
-		echo "Dialog is up to date. Continuing...."
-	fi
-	sleep 3
-fi
+dialogCheck
 
 ############################################################################
 # API Credentials
